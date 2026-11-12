@@ -11,14 +11,22 @@ export type PickState = 'fixed' | 'excluded'
 
 /** [0, n) 범위의 편향 없는 난수 (crypto 기반) */
 export function randomInt(n: number): number {
-  const buf = new Uint32Array(1)
   const limit = Math.floor(0x1_0000_0000 / n) * n
   let x: number
-  do {
-    crypto.getRandomValues(buf)
-    x = buf[0]
-  } while (x >= limit)
+  do x = nextRandom32()
+  while (x >= limit)
   return x % n
+}
+
+// crypto 호출을 1024개씩 묶어서 받아 둔다 (값 하나마다 호출하면 통계 표본 생성이 느림)
+const pool = new Uint32Array(1024)
+let poolPos = pool.length
+function nextRandom32(): number {
+  if (poolPos >= pool.length) {
+    crypto.getRandomValues(pool)
+    poolPos = 0
+  }
+  return pool[poolPos++]
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -51,7 +59,13 @@ const ALL_NUMBERS = Array.from({ length: MAX }, (_, i) => i + MIN)
 
 /** 아무 조건 없는 무작위 1게임 */
 export function randomTicket(): Ticket {
-  return shuffle(ALL_NUMBERS).slice(0, PICK).sort((a, b) => a - b)
+  // 부분 Fisher–Yates: 6칸만 섞는다 (45칸 전체를 섞으면 통계 표본 생성이 수 초 걸림)
+  const a = [...ALL_NUMBERS]
+  for (let i = 0; i < PICK; i++) {
+    const j = i + randomInt(a.length - i)
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a.slice(0, PICK).sort((x, y) => x - y)
 }
 
 // ---------------------------------------------------------------------------

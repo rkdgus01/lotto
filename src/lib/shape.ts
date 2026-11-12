@@ -85,28 +85,51 @@ export interface ShapeStat {
 
 const SAMPLE = 20_000
 
-/** 각 조건과 '켠 조건 전체'에 대해 역대 1등 비율·전체 조합 비율을 계산 */
-export function shapeStats(draws: { numbers: number[] }[], filters: ShapeFilter[] = SHAPE_FILTERS): ShapeStat[] {
-  const winners = draws.map((d, i) => ({ t: d.numbers, ctx: { prev: draws[i - 1]?.numbers } }))
-  const samples = Array.from({ length: SAMPLE }, () => ({
-    t: randomTicket(),
-    ctx: { prev: draws.length ? draws[Math.floor(Math.random() * draws.length)].numbers : undefined },
-  }))
-  const rate = (rows: { t: Ticket; ctx: ShapeContext }[], f: ShapeFilter) =>
-    rows.length ? rows.filter((r) => f.test(r.t, r.ctx)).length / rows.length : 0
-  return filters.map((f) => ({ id: f.id, winners: rate(winners, f), combos: rate(samples, f) }))
+type Rows = { numbers: number[] }[]
+
+/** 조합마다 '통과한 조건' 비트마스크를 한 번만 계산해 두고, 켜고 끌 때는 마스크만 센다 */
+interface Masks {
+  winners: Uint8Array
+  combos: Uint8Array
+}
+
+const cache = new WeakMap<Rows, Masks>()
+
+function masksFor(draws: Rows): Masks {
+  const hit = cache.get(draws)
+  if (hit) return hit
+  const mask = (t: Ticket, ctx: ShapeContext) =>
+    SHAPE_FILTERS.reduce((m, f, i) => (f.test(t, ctx) ? m | (1 << i) : m), 0)
+  const winners = Uint8Array.from(draws, (d, i) => mask(d.numbers, { prev: draws[i - 1]?.numbers }))
+  const combos = new Uint8Array(SAMPLE)
+  for (let i = 0; i < SAMPLE; i++) {
+    const prev = draws.length ? draws[Math.floor(Math.random() * draws.length)].numbers : undefined
+    combos[i] = mask(randomTicket(), { prev })
+  }
+  const m = { winners, combos }
+  cache.set(draws, m)
+  return m
+}
+
+const share = (masks: Uint8Array, need: number) => {
+  if (!masks.length) return 0
+  let c = 0
+  for (const m of masks) if ((m & need) === need) c++
+  return c / masks.length
+}
+
+const bitOf = (id: string) => 1 << SHAPE_FILTERS.findIndex((f) => f.id === id)
+
+/** 조건별 역대 1등 비율·전체 조합 비율 */
+export function shapeStats(draws: Rows): ShapeStat[] {
+  const m = masksFor(draws)
+  return SHAPE_FILTERS.map((f) => ({ id: f.id, winners: share(m.winners, bitOf(f.id)), combos: share(m.combos, bitOf(f.id)) }))
 }
 
 /** 여러 조건을 모두 만족하는 비율 (역대 1등 / 전체 조합) */
-export function combinedStat(draws: { numbers: number[] }[], filters: ShapeFilter[]): { winners: number; combos: number } {
-  if (filters.length === 0) return { winners: 1, combos: 1 }
-  const all: ShapeFilter = {
-    id: 'all',
-    label: '',
-    detail: '',
-    defaultOn: false,
-    test: (t, ctx) => filters.every((f) => f.test(t, ctx)),
-  }
-  const [s] = shapeStats(draws, [all])
-  return { winners: s.winners, combos: s.combos }
+export function combinedStat(draws: Rows, filters: ShapeFilter[]): { winners: number; combos: number } {
+  const need = filters.reduce((n, f) => n | bitOf(f.id), 0)
+  if (!need) return { winners: 1, combos: 1 }
+  const m = masksFor(draws)
+  return { winners: share(m.winners, need), combos: share(m.combos, need) }
 }

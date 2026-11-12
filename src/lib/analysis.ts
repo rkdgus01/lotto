@@ -37,7 +37,15 @@ export interface Analysis {
   yearAvgPrize: Map<string, number>
 }
 
+// 탭을 다시 열 때마다 표본 계산을 반복하지 않도록 같은 데이터면 결과를 재사용
+const cache = new WeakMap<Draw[], Analysis | null>()
+
 export function analyze(draws: Draw[]): Analysis | null {
+  if (!cache.has(draws)) cache.set(draws, computeAnalysis(draws))
+  return cache.get(draws)!
+}
+
+function computeAnalysis(draws: Draw[]): Analysis | null {
   const typed = draws.filter((d) => d.firstType && d.firstType.some((x) => x > 0))
   if (typed.length === 0) return null
   const fromRound = typed[0].round
