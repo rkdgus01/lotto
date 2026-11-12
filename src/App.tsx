@@ -9,7 +9,9 @@ import type { HistoryEntry } from './components/History'
 import { useDraws } from './hooks/useDraws'
 import type { StatRangeId } from './lib/draws'
 import type { Ticket } from './lib/lotto'
+import type { Purchase } from './lib/ledger'
 
+const LEDGER_KEY = 'lotto.ledger.v1'
 const HISTORY_KEY = 'lotto.history.v1'
 const HISTORY_LIMIT = 30
 const TAB_KEY = 'lotto.tab'
@@ -23,12 +25,20 @@ const TABS = [
 ] as const
 type TabId = (typeof TABS)[number]['id']
 
-function loadHistory(): HistoryEntry[] {
+function loadJson<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY)
-    return raw ? (JSON.parse(raw) as HistoryEntry[]) : []
+    const raw = localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : fallback
   } catch {
-    return []
+    return fallback
+  }
+}
+
+function saveJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* 저장 불가 환경 */
   }
 }
 
@@ -45,18 +55,20 @@ function loadTab(): TabId {
 export default function App() {
   const drawsState = useDraws()
   const [tab, setTab] = useState<TabId>(loadTab)
-  const [history, setHistory] = useState<HistoryEntry[]>(loadHistory)
+  const [history, setHistory] = useState<HistoryEntry[]>(() => loadJson(HISTORY_KEY, []))
+  const [ledger, setLedger] = useState<Purchase[]>(() => loadJson(LEDGER_KEY, []))
   // 통계 기준 — 통계 탭과 생성기의 가중치가 같은 값을 쓴다
   const [range, setRange] = useState<StatRangeId>('all')
   const [includeBonus, setIncludeBonus] = useState(true)
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
-    } catch {
-      /* 저장 불가 환경 */
-    }
-  }, [history])
+  useEffect(() => saveJson(HISTORY_KEY, history), [history])
+  useEffect(() => saveJson(LEDGER_KEY, ledger), [ledger])
+
+  const addPurchase = (p: Omit<Purchase, 'id' | 'addedAt'>): string | null => {
+    if (p.key && ledger.some((x) => x.key === p.key)) return '이미 장부에 등록된 용지예요.'
+    setLedger((l) => [...l, { ...p, id: crypto.randomUUID(), addedAt: Date.now() }])
+    return null
+  }
 
   useEffect(() => {
     try {
@@ -93,7 +105,16 @@ export default function App() {
         <StatsView draws={draws} range={range} onRange={setRange} includeBonus={includeBonus} onIncludeBonus={setIncludeBonus} />
       )}
       {tab === 'popular' && <PopularityView draws={draws} />}
-      {tab === 'check' && <CheckView draws={draws} history={history} onClearHistory={() => setHistory([])} />}
+      {tab === 'check' && (
+        <CheckView
+          draws={draws}
+          history={history}
+          onClearHistory={() => setHistory([])}
+          ledger={ledger}
+          onAddPurchase={addPurchase}
+          onRemovePurchase={(id) => setLedger((l) => l.filter((x) => x.id !== id))}
+        />
+      )}
       {tab === 'sim' && <SimulatorView draws={draws} />}
 
       <footer className="app__foot">재미로 즐기세요. 로또는 기대값이 마이너스인 게임입니다.</footer>
