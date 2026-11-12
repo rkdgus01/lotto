@@ -151,7 +151,45 @@ button {
 .toggle input {
   width: 18px;
   height: 18px;
+  flex: none;
   accent-color: var(--accent);
+}
+
+/* ---- 당첨번호 모양 조건 ---- */
+.shape {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.shape__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.shape__legend,
+.shape__rate {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.shape__rate b {
+  color: var(--text);
+}
+.shape__text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.shape__text small {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.shape__sum {
+  margin: 4px 0 0;
 }
 .primary {
   border: none;

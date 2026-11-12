@@ -150,6 +150,8 @@ export interface GenerateOptions {
   weights?: number[]
   /** 피할 과거 1등 조합 ("1,2,3,4,5,6" 형식) */
   pastWinners?: Set<string>
+  /** 당첨번호 모양 조건 (정렬된 조합을 받아 통과 여부) */
+  shapeTest?: (sorted: Ticket) => boolean
 }
 
 export interface GenerateResult {
@@ -201,7 +203,8 @@ export function generate(o: GenerateOptions): GenerateResult {
       const t = draw()
       if (isDuplicate(t)) continue
       const popularOk =
-        !o.avoidPopular || (matchedPatterns(t).length === 0 && !o.pastWinners?.has(t.join()))
+        (!o.avoidPopular || (matchedPatterns(t).length === 0 && !o.pastWinners?.has(t.join()))) &&
+        (!o.shapeTest || o.shapeTest(t))
       const diverseOk = !o.diversify || tickets.every((x) => sharedFree(t, x) <= MAX_SHARED_FREE)
       if (popularOk && diverseOk) {
         chosen = t
@@ -219,7 +222,7 @@ export function generate(o: GenerateOptions): GenerateResult {
         let t = draw()
         for (let i = 0; i < MAX_ATTEMPTS && isDuplicate(t); i++) t = draw()
         chosen = t
-        relaxedPopular = o.avoidPopular
+        relaxedPopular = o.avoidPopular || !!o.shapeTest
         relaxedDiversify ||= o.diversify
       }
     }
@@ -227,7 +230,7 @@ export function generate(o: GenerateOptions): GenerateResult {
   }
 
   const warnings: string[] = []
-  if (relaxedPopular) warnings.push('고정수·제외수 조건 때문에 인기 패턴을 완전히 피하지 못한 게임이 있어요.')
+  if (relaxedPopular) warnings.push('고정수·제외수 때문에 인기 패턴 피하기나 모양 조건을 다 맞추지 못한 게임이 있어요.')
   if (relaxedDiversify) warnings.push('조건이 좁아서 게임끼리 번호가 많이 겹칠 수 있어요.')
   return { tickets, warnings }
 }
