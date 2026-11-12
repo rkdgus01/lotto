@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { combinedStat, SHAPE_FILTERS, shapeStats } from '../lib/shape'
+import LottoMachine, { type DrawRun } from './LottoMachine'
+import Ball from './Ball'
 import NumberPicker from './NumberPicker'
 import TicketList from './TicketList'
 import OddsInfo from './OddsInfo'
@@ -9,6 +11,24 @@ import { frequencyWeights, sliceRange, STAT_RANGES, type Draw, type StatRangeId 
 type WeightMode = 'random' | 'hot' | 'cold'
 
 const SHAPE_KEY = 'lotto.shape.v1'
+const ANIM_KEY = 'lotto.anim'
+
+function loadAnim(): boolean {
+  try {
+    return localStorage.getItem(ANIM_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+function shuffled(a: number[]): number[] {
+  const r = [...a]
+  for (let i = r.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[r[i], r[j]] = [r[j], r[i]]
+  }
+  return r
+}
 const pct = (x: number) => `${(x * 100).toFixed(0)}%`
 
 function loadShapes(): Set<string> {
@@ -44,6 +64,21 @@ export default function GenerateView({ draws, range, includeBonus, onGenerated }
   const [warnings, setWarnings] = useState<string[]>([])
   const [drawKey, setDrawKey] = useState(0)
   const [shapes, setShapes] = useState<Set<string>>(loadShapes)
+  // 추첨기 연출
+  const [animOn, setAnimOn] = useState(loadAnim)
+  const [run, setRun] = useState<DrawRun | null>(null)
+  const [skipId, setSkipId] = useState(0)
+  const [drawing, setDrawing] = useState(false)
+  const [drawn, setDrawn] = useState<number[]>([])
+  const [revealed, setRevealed] = useState(false)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ANIM_KEY, animOn ? 'on' : 'off')
+    } catch {
+      /* 무시 */
+    }
+  }, [animOn])
 
   useEffect(() => {
     try {
@@ -94,11 +129,76 @@ export default function GenerateView({ draws, range, includeBonus, onGenerated }
     setWarnings(result.warnings)
     setDrawKey((k) => k + 1)
     onGenerated(result.tickets)
+    if (animOn) {
+      setDrawn([])
+      setRevealed(false)
+      setDrawing(true)
+      setRun({ id: Date.now(), numbers: shuffled(result.tickets[0]) })
+    } else {
+      setDrawn(result.tickets[0])
+      setRevealed(true)
+    }
   }
+
+  const trayDone = !drawing && drawn.length > 0
+  const tray = trayDone ? [...drawn].sort((a, b) => a - b) : drawn
 
   return (
     <>
+      <section className="card machine">
+        <div className="card__head">
+          <h2>추첨기</h2>
+          <label className="toggle toggle--sm">
+            <input type="checkbox" checked={animOn} onChange={(e) => setAnimOn(e.target.checked)} disabled={drawing} />
+            <span>추첨 연출</span>
+          </label>
+        </div>
+        <LottoMachine
+          run={run}
+          skipId={skipId}
+          onDrawn={(n) => setDrawn((d) => [...d, n])}
+          onDone={() => {
+            setDrawing(false)
+            setRevealed(true)
+          }}
+        />
+        <div className="tray" aria-live="polite">
+          <span className="tray__label">{drawing ? 'A게임 추첨 중' : tickets.length ? 'A게임' : '대기 중'}</span>
+          <div className="tray__slots">
+            {Array.from({ length: PICK }, (_, i) =>
+              tray[i] !== undefined ? (
+                <Ball key={`${run?.id}-${tray[i]}`} n={tray[i]} delayMs={trayDone ? undefined : 0} />
+              ) : (
+                <span key={i} className="tray__slot" />
+              ),
+            )}
+          </div>
+        </div>
+        {drawing ? (
+          <button className="primary primary--ghost" onClick={() => setSkipId((k) => k + 1)}>
+            건너뛰기
+          </button>
+        ) : (
+          <button className="primary" onClick={onGenerate} disabled={!!error}>
+            {count}게임 번호 생성
+          </button>
+        )}
+        {error && <p className="error">{error}</p>}
+      </section>
+
+      {revealed && tickets.length > 0 && (
+        <>
+          <TicketList key={drawKey} tickets={tickets} animate />
+          {warnings.map((w) => (
+            <p key={w} className="warning">
+              {w}
+            </p>
+          ))}
+        </>
+      )}
+
       <section className="card controls">
+        <h2>생성 옵션</h2>
         <div className="control">
           <span className="control__label">게임 수</span>
           <div className="segmented" role="radiogroup" aria-label="게임 수">
@@ -161,22 +261,7 @@ export default function GenerateView({ draws, range, includeBonus, onGenerated }
             </p>
           )}
         </div>
-        <button className="primary" onClick={onGenerate} disabled={!!error}>
-          번호 생성
-        </button>
-        {error && <p className="error">{error}</p>}
       </section>
-
-      {tickets.length > 0 && (
-        <>
-          <TicketList key={drawKey} tickets={tickets} animate />
-          {warnings.map((w) => (
-            <p key={w} className="warning">
-              {w}
-            </p>
-          ))}
-        </>
-      )}
 
       <NumberPicker picks={picks} onToggle={togglePick} onClear={() => setPicks(new Map())} />
       <OddsInfo />
